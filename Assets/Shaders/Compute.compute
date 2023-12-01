@@ -1,0 +1,173 @@
+// The data structure for PairIndex
+struct PairIndex
+{
+    uint i1;
+    uint i2;
+};
+
+// The data structure for AABB Bound Data Obj and Obj
+struct BoundingBoxData
+{
+    float3 minBounds;
+    float3 maxBounds;
+};
+
+// variable
+uint numTotalVertices;
+uint numReverseVertices;
+uint verticesPerObject;
+uint numMesh;
+float deltaTime;
+float floorPos;
+
+// Floor Collision kernel
+float3 floorMinPos;
+float3 floorMaxPos;
+
+// AABB Compute
+RWStructuredBuffer<PairIndex> pairIndexBuffer;
+RWStructuredBuffer<uint> pairCollisionResult;
+RWStructuredBuffer<BoundingBoxData> aabbBound;
+
+// RWStructuredBuffer Input and output position and velocity
+RWStructuredBuffer<float3> positions;
+RWStructuredBuffer<float3> velocities;
+
+// reverse velocity
+RWStructuredBuffer<uint> combinedIndexBuffer;
+
+// Floor Object bounding
+RWStructuredBuffer<BoundingBoxData> objectBoundingBuffer;
+
+RWStructuredBuffer<uint> floorCollisionResult;
+
+/////////////////////////////////////////////////
+//  AABBCompute kernel
+/////////////////////////////////////////////////
+#pragma kernel AABBCompute
+
+[numthreads(1024, 1, 1)]
+void AABBCompute(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+
+    if (idx >= pairIndexBuffer.Length) return;
+
+    PairIndex pair = pairIndexBuffer[idx];
+    uint i1 = pair.i1;
+    uint i2 = pair.i2;
+
+    BoundingBoxData b1 = objectBoundingBuffer[i1];
+    BoundingBoxData b2 = objectBoundingBuffer[i2];
+
+    // AABB collision detection
+    bool collides =
+        b1.minBounds.x <= b2.maxBounds.x &&
+        b1.maxBounds.x >= b2.minBounds.x &&
+        b1.minBounds.y <= b2.maxBounds.y &&
+        b1.maxBounds.y >= b2.minBounds.y &&
+        b1.minBounds.z <= b2.maxBounds.z &&
+        b1.maxBounds.z >= b2.minBounds.z;
+
+    pairCollisionResult[idx] = collides ? 1 : 0;
+}
+
+/////////////////////////////////////////////////
+//  Update Position kernel
+/////////////////////////////////////////////////
+#pragma kernel UpdatePosition
+
+[numthreads(1024, 1, 1)]
+void UpdatePosition(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    if (idx >= numTotalVertices) return;
+
+    float3 gravity = float3(0.0f, -10.0f, 0.0f);
+
+    float3 currentVelocity = velocities[idx];
+    float3 currentPosition = positions[idx];
+
+    currentVelocity += gravity * deltaTime;
+    currentPosition += currentVelocity * deltaTime;
+
+    velocities[idx] = currentVelocity;
+    positions[idx] = currentPosition;
+}
+
+
+/////////////////////////////////////////////////
+//  Floor Collision kernel
+/////////////////////////////////////////////////
+#pragma kernel FloorCollision
+
+[numthreads(1024, 1, 1)]
+void FloorCollision(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+
+    if (idx >= numMesh) return; // Thread is out of bounds
+
+    BoundingBoxData b = objectBoundingBuffer[idx];
+   
+    // AABB collision detection
+    bool collides =
+        b.minBounds.x <= floorMaxPos.x &&
+        b.maxBounds.x >= floorMinPos.x &&
+        b.minBounds.y <= floorMaxPos.y &&
+        b.maxBounds.y >= floorMinPos.y &&
+        b.minBounds.z <= floorMaxPos.z &&
+        b.maxBounds.z >= floorMinPos.z;
+
+    floorCollisionResult[idx] = collides ? 1 : 0;
+}
+
+/////////////////////////////////////////////////
+//  Update Position kernel
+/////////////////////////////////////////////////
+#pragma kernel UpdateReverseVelocity
+
+[numthreads(1024, 1, 1)]
+void UpdateReverseVelocity(uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+
+    if (idx >= numTotalVertices) return;
+
+    float3 gravity = float3(0.0f, -10.0f, 0.0f);
+
+    for (uint i = 0; i < numMesh; i++) {
+
+        
+        if (floorCollisionResult[i] == 1) {
+
+            uint start = combinedIndexBuffer[i]; // 0 24 48
+            uint end = combinedIndexBuffer[i + 1]; // 24 48 72
+            float penetrationPos = 0;
+            
+            // idx in range of 
+            if (idx >= start && idx < end) {
+
+                float3 currentVelocity = velocities[idx];
+                float3 currentPosition = positions[idx];
+
+                currentVelocity *= -1;
+          
+                //if (currentPosition.y <= floorPos) {
+                //    penetrationPos = currentPosition.y - floorPos; // -.2-5 + (-2) = -0.5
+                //    currentPosition.y-= penetrationPos; // -2.5 +(-0.5) = -2
+                //}
+
+                //if (currentPosition.y > floorPos) {
+                //    penetrationPos = currentPosition.y - floorPos; // -1.5 + (-2) = .5
+                //    currentPosition.y -= penetrationPos; // -1.5 -(-.5) = -1
+                //}
+
+                // penetrationPos + offset
+                currentPosition.y += 0.1f;
+                velocities[idx] = currentVelocity;
+                positions[idx] = currentPosition;
+            }
+        }
+    }
+}
