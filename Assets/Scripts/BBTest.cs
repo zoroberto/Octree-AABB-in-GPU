@@ -15,19 +15,34 @@ public class BBTest : MonoBehaviour
     private Vector3[] positions;
     private Mesh mesh;
 
+    private Vector3 min;
+    private Vector3 max;
+
+    int updateAABBKernel;
+    int mergeAABBKernel;
+    int vertexCount;
+
+    int index = 0;
+
     void Start()
     {
         o = Instantiate(obj, Vector3.zero, Quaternion.identity);
         o.transform.parent = this.gameObject.transform;
         mesh = o.GetComponent<MeshFilter>().mesh;
 
-        intermediateResultsBuffer = new ComputeBuffer(2, sizeof(float) * 3); // Min, Max 값 저장
+        findKernelID();
     }
 
-    void Update()
+    void findKernelID()
+    {
+        updateAABBKernel = computeShader.FindKernel("UpdateAABBGroup");
+        mergeAABBKernel = computeShader.FindKernel("MergeAABB");
+    }
+
+    void InitBuffers()
     {
         Vector3[] vertices = mesh.vertices;
-        int vertexCount = vertices.Length;
+        vertexCount = vertices.Length;
         positions = new Vector3[vertexCount];
 
         Matrix4x4 localToWorld = o.transform.localToWorldMatrix;
@@ -41,36 +56,56 @@ public class BBTest : MonoBehaviour
         {
             posBuffer.Release();
         }
-        posBuffer = new ComputeBuffer(vertexCount, sizeof(float) * 3);
-        posBuffer.SetData(positions);
-
-
-        int kernelHandle = computeShader.FindKernel("CSMain");
-        computeShader.SetBuffer(kernelHandle, "Vertices", posBuffer);
-        computeShader.SetBuffer(kernelHandle, "IntermediateResults", intermediateResultsBuffer);
-
-        computeShader.Dispatch(kernelHandle, Mathf.CeilToInt(vertexCount / 1024f), 1, 1);
-
-        kernelHandle = computeShader.FindKernel("Reduce");
-        computeShader.Dispatch(kernelHandle, 1, 1, 1);
-
-        // 결과 읽기
-        Vector3[] results = new Vector3[2];
-        intermediateResultsBuffer.GetData(results);
-        Vector3 min = results[0];
-        Vector3 max = results[1];
-
-        Debug.Log("AABB Min: " + min);
-        Debug.Log("AABB Max: " + max);
-
-        posBuffer.Release();
-    }
-
-    private void OnDestroy()
-    {
         if (intermediateResultsBuffer != null)
         {
             intermediateResultsBuffer.Release();
         }
+        posBuffer = new ComputeBuffer(vertexCount, sizeof(float) * 3);
+        posBuffer.SetData(positions);
+        intermediateResultsBuffer = new ComputeBuffer(2, sizeof(float) * 3); // Min, Max 값 저장
+
+        computeShader.SetBuffer(updateAABBKernel, "Vertices", posBuffer);
+        computeShader.SetBuffer(updateAABBKernel, "IntermediateResults", intermediateResultsBuffer);
+        computeShader.SetBuffer(mergeAABBKernel, "IntermediateResults", intermediateResultsBuffer);
+    }
+
+    void DisPatchSolver()
+    {
+        computeShader.Dispatch(updateAABBKernel, Mathf.CeilToInt(vertexCount / 1024f), 1, 1);
+        computeShader.Dispatch(mergeAABBKernel, 1, 1, 1);
+    }
+
+    void UpdatePosition()
+    {
+        if (index++ % 1000 == 0)
+        {
+            index = 1;
+            o.transform.position = new Vector3(Random.Range(-10.0f, 10.0f), Random.Range(0.0f, 10.0f), Random.Range(-10.0f, 10.0f));
+        }
+    }
+
+    void Update()
+    {
+        UpdatePosition();
+        InitBuffers();
+        DisPatchSolver();
+
+        // 결과 읽기
+        Vector3[] results = new Vector3[2];
+        intermediateResultsBuffer.GetData(results);
+        min = results[0];
+        max = results[1];
+    }
+
+    private void OnDestroy()
+    {
+        if (intermediateResultsBuffer != null) intermediateResultsBuffer.Release();
+        if (posBuffer != null) posBuffer.Release();
+    }
+
+    void OnDrawGizmos()
+    {
+        Gizmos.color = Color.green; // 박스 색상 설정
+        Gizmos.DrawWireCube((min + max) * 0.5f, max - min);
     }
 }
