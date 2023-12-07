@@ -42,7 +42,7 @@ public class Controller : MonoBehaviour
     private List<Vector3> verticesRangeList = new List<Vector3>(); // store all combinded vertices of all objects
     private List<List<Vector3>> listOfVerticesList = new List<List<Vector3>>(); // list inside list, to find index of each list
     private List<int> indicesListRange = new List<int>(); // store index range of each object
-    
+
     // physic particle
     private List<ParticleList> particleData = new List<ParticleList>();
 
@@ -77,7 +77,7 @@ public class Controller : MonoBehaviour
         FindKernelIDs();
         InitializeData();
         InitializeArray();
-        
+
         AddCollisionPair();
         print(" pair " + collisionPairs.Count);
 
@@ -113,15 +113,12 @@ public class Controller : MonoBehaviour
     {
         for (int i = 0; i < meshTransform.Count; i++)
         {
-            //GetMeshVertex.Getvertices(meshTransform[i].gameObject);
-            //vertices = GetMeshVertex.vertices;
             vertices = meshTransform[i].gameObject.GetComponent<MeshFilter>().mesh.vertices;
 
             BoundingBox mesh = new BoundingBox();
             mesh.Vertices = new List<Vector3>();
             foreach (Vector3 v in vertices) mesh.Vertices.Add(v);
             customMesh.Add(mesh);
-
         }
 
         // add vertices of all objects to one list, so list inside list and can find index of each list
@@ -139,7 +136,7 @@ public class Controller : MonoBehaviour
             verticesRangeList.AddRange(customMesh[i].Vertices); // add all vertices of object from vertex 1 -> n
         }
 
-        
+
     }
 
     // Initiate the data arrays
@@ -147,7 +144,7 @@ public class Controller : MonoBehaviour
     {
         totalNumVertices = verticesRangeList.Count;
 
-        
+
         positionsArray = new Vector3[verticesRangeList.Count];
         velocitiesArray = new Vector3[verticesRangeList.Count];
         objectBoundingArray = new BoundData[meshTransform.Count];
@@ -159,8 +156,6 @@ public class Controller : MonoBehaviour
         }
 
         indicesListRange = CalculateCombinedIndices(listOfVerticesList);
-
-
     }
 
     // Calculate combined index
@@ -168,7 +163,7 @@ public class Controller : MonoBehaviour
     {
         List<int> combinedIndices = new List<int>();
         int currentIndex = 0;
-        
+
         // Start with 0 as the initial index.
         combinedIndices.Add(currentIndex);
 
@@ -178,7 +173,7 @@ public class Controller : MonoBehaviour
             //print($"listLength vert { listLength}");
 
             currentIndex += listLength;
-           // print($"currentIndex { currentIndex}");
+            // print($"currentIndex { currentIndex}");
 
             combinedIndices.Add(currentIndex);
         }
@@ -200,11 +195,11 @@ public class Controller : MonoBehaviour
 
         positionsBuffer = new ComputeBuffer(verticesRangeList.Count, sizeof(float) * 3);
         velocitiesBuffer = new ComputeBuffer(verticesRangeList.Count, sizeof(float) * 3);
-        
+
         floorCollisionResultBuffer = new ComputeBuffer(meshTransform.Count, sizeof(int));
         objectBoundingBuffer = new ComputeBuffer(meshTransform.Count, sizeof(float) * 6);
-       
-        combinedIndexBuffer = new ComputeBuffer(indicesListRange.Count+1, sizeof(int));
+
+        combinedIndexBuffer = new ComputeBuffer(indicesListRange.Count + 1, sizeof(int));
 
         // Set the buffers to the compute shader
         pairIndexBuffer.SetData(pairIndexArray);
@@ -230,7 +225,7 @@ public class Controller : MonoBehaviour
                 //print($" {i} {j}");
 
                 customMesh[j] = new BoundingBox();
-                AddBoundingPair(customMesh[i], customMesh[j], i,j);
+                AddBoundingPair(customMesh[i], customMesh[j], i, j);
 
                 AddPairIndex(i, j);
 
@@ -290,7 +285,7 @@ public class Controller : MonoBehaviour
         SetComputeShader();
         DispatchComputeShader();
         GetDataToCPU();
-          
+
     }
 
 
@@ -330,15 +325,15 @@ public class Controller : MonoBehaviour
 
         computeShader.SetBuffer(updatePositionKernel, "positions", positionsBuffer);
         computeShader.SetBuffer(updatePositionKernel, "velocities", velocitiesBuffer);
-        
+
         computeShader.SetVector("floorMinPos", planeBounding.Min);
         computeShader.SetVector("floorMaxPos", planeBounding.Max);
 
         computeShader.SetBuffer(floorObjCollisionKernel, "objectBoundingBuffer", objectBoundingBuffer);
         computeShader.SetBuffer(floorObjCollisionKernel, "floorCollisionResult", floorCollisionResultBuffer);
-       
+
         computeShader.SetBuffer(updateReverseVelocityKernel, "combinedIndexBuffer", combinedIndexBuffer);
-        
+
         computeShader.SetBuffer(updateReverseVelocityKernel, "positions", positionsBuffer);
         computeShader.SetBuffer(updateReverseVelocityKernel, "velocities", velocitiesBuffer);
         computeShader.SetBuffer(updateReverseVelocityKernel, "floorCollisionResult", floorCollisionResultBuffer);
@@ -465,45 +460,45 @@ public class Controller : MonoBehaviour
     private void GetFloorCollisionResult()
     {
         //floorCollisionResultBuffer.GetData(floorCollisionResults);
-       
-    }
-
-    private void OnDrawGizmos()
-    {
-        if (overlap)
-        {
-            for (int i = 0; i < collisionPairs.Count; i++)
-            {
-
-                for (int j = 0; j < collisionPairs[i].Bound.Count; j++)
-                {
-
-                    Vector3 size = new Vector3(
-                       Mathf.Abs(collisionPairs[i].Bound[j].Max.x - collisionPairs[i].Bound[j].Min.x),
-                       Mathf.Abs(collisionPairs[i].Bound[j].Max.y - collisionPairs[i].Bound[j].Min.y),
-                       Mathf.Abs(collisionPairs[i].Bound[j].Max.z - collisionPairs[i].Bound[j].Min.z)
-                       );
-
-                    collisionPairs[i].Bound[j].Center = (collisionPairs[i].Bound[j].Max + collisionPairs[i].Bound[j].Min) / 2;
-
-                    for (int k = 0; k < collidablePairIndex.Count; k++)
-                    {
-                        if (i == collidablePairIndex[k])
-                        {
-                            Gizmos.color = Color.red;
-                            Gizmos.DrawWireCube(collisionPairs[collidablePairIndex[k]].Bound[j].Center, size);
-                            Gizmos.DrawWireCube(collisionPairs[collidablePairIndex[k]].Bound[j].Center, size);
-                        }
-
-                    }
-
-                }
-
-            }
-        }
-
 
     }
+
+    // private void OnDrawGizmos()
+    // {
+    //     if (overlap)
+    //     {
+    //         for (int i = 0; i < collisionPairs.Count; i++)
+    //         {
+
+    //             for (int j = 0; j < collisionPairs[i].Bound.Count; j++)
+    //             {
+
+    //                 Vector3 size = new Vector3(
+    //                    Mathf.Abs(collisionPairs[i].Bound[j].Max.x - collisionPairs[i].Bound[j].Min.x),
+    //                    Mathf.Abs(collisionPairs[i].Bound[j].Max.y - collisionPairs[i].Bound[j].Min.y),
+    //                    Mathf.Abs(collisionPairs[i].Bound[j].Max.z - collisionPairs[i].Bound[j].Min.z)
+    //                    );
+
+    //                 collisionPairs[i].Bound[j].Center = (collisionPairs[i].Bound[j].Max + collisionPairs[i].Bound[j].Min) / 2;
+
+    //                 for (int k = 0; k < collidablePairIndex.Count; k++)
+    //                 {
+    //                     if (i == collidablePairIndex[k])
+    //                     {
+    //                         Gizmos.color = Color.red;
+    //                         Gizmos.DrawWireCube(collisionPairs[collidablePairIndex[k]].Bound[j].Center, size);
+    //                         Gizmos.DrawWireCube(collisionPairs[collidablePairIndex[k]].Bound[j].Center, size);
+    //                     }
+
+    //                 }
+
+    //             }
+
+    //         }
+    //     }
+
+
+    // }
 
 
     private void OnDestroy()
