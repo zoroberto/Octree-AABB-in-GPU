@@ -15,6 +15,9 @@ public class BBTest : MonoBehaviour
     [Header("Object Count")]
     public int num_of_obj = 1;
 
+    [Header("Debug Mode")]
+    public bool debugMode = true;
+
 
 
     private ComputeBuffer posBuffer;
@@ -119,13 +122,16 @@ public class BBTest : MonoBehaviour
         InitBuffers();
         DisPatchSolver();
 
-        // 결과 읽기
-        Vector3[] results = new Vector3[num_of_obj * 2];
-        intermediateResultsBuffer.GetData(results);
-        for (int i = 0; i < num_of_obj; i++)
+        if (debugMode)
         {
-            min[i] = results[i * 2];
-            max[i] = results[i * 2 + 1];
+            // 결과 읽기
+            Vector3[] results = new Vector3[num_of_obj * 2];
+            intermediateResultsBuffer.GetData(results);
+            for (int i = 0; i < num_of_obj; i++)
+            {
+                min[i] = results[i * 2];
+                max[i] = results[i * 2 + 1];
+            }
         }
     }
 
@@ -138,7 +144,7 @@ public class BBTest : MonoBehaviour
 
     void OnDrawGizmos()
     {
-        if (Application.isPlaying)
+        if (Application.isPlaying && debugMode)
         {
             Gizmos.color = Color.green; // 박스 색상 설정
             for (int i = 0; i < num_of_obj; i++)

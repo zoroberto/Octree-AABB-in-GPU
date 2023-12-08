@@ -618,7 +618,7 @@ MonoBehaviour:
   computeShader: {fileID: 7200000, guid: 202eca3b14f593441935ca9bb54e5e11, type: 3}
   obj: {fileID: 2641328679055289322, guid: 132b68add10f0b746bc340deab0ed24d, type: 3}
   num_of_loop: 1000
-  num_of_obj: 5
+  num_of_obj: 1000
   o: []
   mesh_list: []
   min: []
