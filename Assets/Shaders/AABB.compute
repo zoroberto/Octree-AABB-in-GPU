@@ -1,10 +1,10 @@
 // AABBCompute.compute
 #pragma kernel UpdateAABBGroup
-#pragma kernel MergeAABB
 
 // 정점 데이터
 StructuredBuffer<float3> Vertices;
 RWStructuredBuffer<float3> GroupData;
+StructuredBuffer<int2> ObjectIndex;
 
 // 각 스레드 그룹에서 계산된 AABB의 중간 결과를 저장
 RWStructuredBuffer<float3> IntermediateResults;
@@ -16,42 +16,35 @@ RWStructuredBuffer<float3> IntermediateResults;
 [numthreads(GROUP_SIZE, 1, 1)]
 void UpdateAABBGroup(uint3 DTid : SV_DispatchThreadID) {
     uint index = DTid.x;
-    uint groupIndex = DTid.x / GROUP_SIZE;
+    uint groupIndex = 0;
+
+    for(int i=0;i<ObjectIndex.Length;i++)
+    {
+        if (index >= ObjectIndex[i].x && index < ObjectIndex[i].y) {
+            groupIndex = i;
+            break;
+        }
+    }
+
+    int src = ObjectIndex[groupIndex].x;
+    int dst = ObjectIndex[groupIndex].y;
 
     // 이 스레드 그룹의 최초 스레드에서만 실행
-    if (index % GROUP_SIZE == 0) {
+    if (index == src) {
         float3 min_value = float3(FLT_MAX, FLT_MAX, FLT_MAX);
         float3 max_value = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
         // 이 스레드 그룹의 모든 정점을 순회하면서 최소 및 최대 값을 찾음
-        for (uint i = 0; i < GROUP_SIZE; ++i) {
-            uint currIndex = groupIndex * GROUP_SIZE + i;
-            if (currIndex < Vertices.Length) {
-                float3 vertex = Vertices[currIndex];
+        for(int i=index;i<dst;++i)
+        {
+            float3 vertex = Vertices[i];
 
-                min_value = min(min_value, vertex); // 최소값 업데이트
-                max_value = max(max_value, vertex); // 최대값 업데이트
-            }
+            min_value = min(min_value, vertex); // 최소값 업데이트
+            max_value = max(max_value, vertex); // 최대값 업데이트
         }
 
         // 중간 결과를 저장
         IntermediateResults[groupIndex * 2] = min_value;
         IntermediateResults[groupIndex * 2 + 1] = max_value;
     }
-}
-
-// 최종 AABB 계산
-[numthreads(1, 1, 1)]
-void MergeAABB() {
-    float3 min_value = float3(FLT_MAX, FLT_MAX, FLT_MAX);
-    float3 max_value = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-
-    for (uint i = 0; i < IntermediateResults.Length / 2; ++i) {
-        min_value = min(min_value, IntermediateResults[i * 2]);
-        max_value = max(max_value, IntermediateResults[i * 2 + 1]);
-    }
-
-    // 결과를 저장
-    IntermediateResults[0] = min_value;
-    IntermediateResults[1] = max_value;
 }
