@@ -1,75 +1,105 @@
 // AABBCompute.compute
 #pragma kernel UpdateAABBGroup
+#pragma kernel UpdatePosition
+#pragma kernel CollisionWithFloor
 
 // 정점 데이터
-StructuredBuffer<float3> Vertices;
-RWStructuredBuffer<float3> GroupData;
+RWStructuredBuffer<float3> Positions;
+RWStructuredBuffer<float3> Velocities;
 StructuredBuffer<int2> ObjectIndex;
 
-// 각 스레드 그룹에서 계산된 AABB의 중간 결과를 저장
-RWStructuredBuffer<float3> IntermediateResults;
+// 각 스레드 그룹에서 계산된 AABB의 결과를 저장
+RWStructuredBuffer<float3> AABB;
+
+// 충돌처리용 버퍼
+RWStructuredBuffer<int> floorCollisionResult;
+
+int maxVertexCount;
 
 // 스레드 그룹 크기
 #define GROUP_SIZE 1024
 #define FLT_MAX 2147483647
 
-// [numthreads(GROUP_SIZE, 1, 1)]
-// void UpdateAABBGroup(uint3 DTid : SV_DispatchThreadID) {
-//     uint index = DTid.x;
-//     uint groupIndex = 0;
+[numthreads(GROUP_SIZE,1,1)]
+void UpdatePosition(uint3 id : SV_DispatchThreadID)
+{
+    int index = id.x;
 
-//     for(int i=0;i<ObjectIndex.Length;i++)
-//     {
-//         if (index >= ObjectIndex[i].x && index < ObjectIndex[i].y) {
-//             groupIndex = i;
-//             break;
-//         }
-//     }
+    if(index >= maxVertexCount) return;
+    float3 gravity = float3(0.0f, -10.0f, 0.0f);
+    float timestep = 0.01f;
 
-//     int src = ObjectIndex[groupIndex].x;
-//     int dst = ObjectIndex[groupIndex].y;
+    float3 currPos = Positions[index];
+    float3 currVel = Velocities[index];
 
-//     // 이 스레드 그룹의 최초 스레드에서만 실행
-//     if (index == src) {
-//         float3 min_value = float3(FLT_MAX, FLT_MAX, FLT_MAX);
-//         float3 max_value = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+    currVel += (gravity * timestep);
+    currPos += (currVel * timestep);
+    
+    Positions[index] = currPos;
+    Velocities[index] = currVel;
+}
 
-//         // 이 스레드 그룹의 모든 정점을 순회하면서 최소 및 최대 값을 찾음
-//         for(int i=index;i<dst;++i)
-//         {
-//             float3 vertex = Vertices[i];
+[numthreads(GROUP_SIZE,1,1)]
+void CollisionWithFloor(uint3 id : SV_DispatchThreadID)
+{
+    int index = id.x; // ObjectIndex        
 
-//             min_value = min(min_value, vertex); // 최소값 업데이트
-//             max_value = max(max_value, vertex); // 최대값 업데이트
-//         }
+    if(floorCollisionResult[index] == 1)
+    {
+        // 오브젝트 별 디스패치 => 오브젝트의 시작, 끝 pos 인덱스를 순회하며 AABB 업데이트
+        int src = ObjectIndex[index].x;
+        int dst = ObjectIndex[index].y;
 
-//         // 중간 결과를 저장
-//         IntermediateResults[groupIndex * 2] = min_value;
-//         IntermediateResults[groupIndex * 2 + 1] = max_value;
-//     }
-// }
+        for(int i=src;i<dst;i++)
+        {
+            float3 currPos = Positions[i];
+            float3 currVel = Velocities[i];
+
+            currVel *= -0.4f;
+            currPos.y += 0.1f;
+            
+            Positions[i] = currPos;
+            Velocities[i] = currVel;
+        }
+    }
+}
 
 [numthreads(GROUP_SIZE, 1, 1)]
-void UpdateAABBGroup(uint3 DTid : SV_DispatchThreadID) {
-    uint index = DTid.x; // ObjectIndex        
+void UpdateAABBGroup(uint3 id : SV_DispatchThreadID)
+{
+    int index = id.x; // ObjectIndex        
 
+    // 오브젝트 별 디스패치 => 오브젝트의 시작, 끝 pos 인덱스를 순회하며 AABB 업데이트
     int src = ObjectIndex[index].x;
     int dst = ObjectIndex[index].y;
-
-    // 이 스레드 그룹의 최초 스레드에서만 실행
+    
     float3 min_value = float3(FLT_MAX, FLT_MAX, FLT_MAX);
     float3 max_value = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+    float3 floorMinPos = float3(-5.0f,-5.0f,-5.0f);
+    float3 floorMaxPos = float3(5.0f,5.0f,5.0f);
 
     // 이 스레드 그룹의 모든 정점을 순회하면서 최소 및 최대 값을 찾음
     for(int i=src;i<dst;++i)
     {
-        float3 vertex = Vertices[i];
+        float3 vertex = Positions[i];
 
         min_value = min(min_value, vertex); // 최소값 업데이트
         max_value = max(max_value, vertex); // 최대값 업데이트
     }
 
     // 중간 결과를 저장
-    IntermediateResults[index * 2] = min_value;
-    IntermediateResults[index * 2 + 1] = max_value;
+    AABB[index * 2] = min_value;
+    AABB[index * 2 + 1] = max_value;
+
+    bool collides =
+        (min_value.x <= floorMaxPos.x &&
+        max_value.x >= floorMinPos.x &&
+        min_value.y <= floorMaxPos.y &&
+        max_value.y >= floorMinPos.y &&
+        min_value.z <= floorMaxPos.z &&
+        max_value.z >= floorMinPos.z) ||
+        min_value.y <= 0.0f;
+
+    floorCollisionResult[index] = collides ? 1 : -1;
 }

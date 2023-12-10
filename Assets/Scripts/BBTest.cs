@@ -9,36 +9,41 @@ public class BBTest : MonoBehaviour
     [Header("Object")]
     public GameObject obj;
 
-    [Header("Random Loop Count")]
-    public int num_of_loop = 1000;
-
     [Header("Object Count")]
     public int num_of_obj = 1;
 
     [Header("Debug Mode")]
     public bool debugMode = true;
 
-
-
+    //compute buffers
     private ComputeBuffer posBuffer;
-    private ComputeBuffer intermediateResultsBuffer;
+    private ComputeBuffer velBuffer;
+    private ComputeBuffer aabbBuffer;
     private ComputeBuffer objectIndexBuffer;
+    private ComputeBuffer collisionBuffer;
+    //data
     private Vector3[] positions;
+    private Vector3[] velocities;
     private Vector2Int[] indicies;
+    private int[] collisions;
 
+    //instantiate objects
+    private GameObject[] o;
+    private Mesh[] mesh_list;
 
-    public GameObject[] o;
-    public Mesh[] mesh_list;
+    private Vector3[] min;
+    private Vector3[] max;
 
-    public Vector3[] min;
-    public Vector3[] max;
-
+    //kernels
     int updateAABBKernel;
+    int updatePositionKernel;
+    int collisionFloorKernel;
+
+    //const value
     int vertexCount;
+    private int dispatchAABBGroupSize = 1;
+    private int dispatchPositionGroupSize = 1;
 
-    int index = 0;
-
-    private int dispatchValue = 1;
     void Start()
     {
         o = new GameObject[num_of_obj];
@@ -48,26 +53,49 @@ public class BBTest : MonoBehaviour
 
         for (int i = 0; i < num_of_obj; i++)
         {
-            var _o = Instantiate(obj, new Vector3(Random.Range(-10.0f, 10.0f), Random.Range(0.0f, 10.0f), Random.Range(-10.0f, 10.0f)), Quaternion.identity);
-            _o.transform.parent = this.transform;
-            o[i] = _o;
-            mesh_list[i] = _o.GetComponent<MeshFilter>().mesh;
+            var _obj = Instantiate(obj, new Vector3(Random.Range(-10.0f, 10.0f), Random.Range(7.0f, 15.0f), Random.Range(-10.0f, 10.0f)), Quaternion.identity);
+            _obj.transform.parent = this.transform;
+            o[i] = _obj;
+            o[i].name = "object_" + i;
+            mesh_list[i] = _obj.GetComponent<MeshFilter>().mesh;
         }
 
         findKernelID();
+        setupBuffers();
+    }
+
+    void Update()
+    {
+        UpdateBuffers();
+        DisPatchSolver();
+        UpdatePosition();
+
+        if (debugMode)
+        {
+            // 결과 읽기
+            Vector3[] results = new Vector3[num_of_obj * 2];
+            aabbBuffer.GetData(results);
+            for (int i = 0; i < num_of_obj; i++)
+            {
+                min[i] = results[i * 2];
+                max[i] = results[i * 2 + 1];
+            }
+        }
     }
 
     void findKernelID()
     {
         updateAABBKernel = computeShader.FindKernel("UpdateAABBGroup");
+        updatePositionKernel = computeShader.FindKernel("UpdatePosition");
+        collisionFloorKernel = computeShader.FindKernel("CollisionWithFloor");
     }
 
-    void InitBuffers()
+    void setupBuffers()
     {
+        int st_index = 0;
         List<Vector3> vertices = new List<Vector3>();
         indicies = new Vector2Int[num_of_obj];
-
-        int st_index = 0;
+        collisions = new int[num_of_obj];
         for (int i = 0; i < num_of_obj; i++)
         {
             var _o = o[i];
@@ -79,68 +107,87 @@ public class BBTest : MonoBehaviour
                 vertices.Add(localToWorld.MultiplyPoint3x4(_vertices[j]));
             }
             indicies[i] = new Vector2Int(st_index, st_index + _vertexCount);
+            collisions[i] = -1;
             st_index += _vertexCount;
         }
         vertexCount = vertices.Count;
-        positions = vertices.ToArray();
+        positions = new Vector3[vertexCount];
+        velocities = new Vector3[vertexCount];
 
-        dispatchValue = Mathf.CeilToInt(num_of_obj / 1024f);
-
-        // 버퍼 생성 및 설정
-        if (intermediateResultsBuffer != null) intermediateResultsBuffer.Release();
-        if (posBuffer != null) posBuffer.Release();
-        if (objectIndexBuffer != null) objectIndexBuffer.Release();
+        for (int i = 0; i < vertices.Count; i++)
+        {
+            positions[i] = vertices[i];
+            velocities[i] = Vector3.zero;
+        }
 
         posBuffer = new ComputeBuffer(vertexCount, sizeof(float) * 3);
-        posBuffer.SetData(positions);
-        intermediateResultsBuffer = new ComputeBuffer(num_of_obj * 2, sizeof(float) * 3); // Min, Max 값 저장
+        velBuffer = new ComputeBuffer(vertexCount, sizeof(float) * 3);
+        velBuffer.SetData(velocities);
+        aabbBuffer = new ComputeBuffer(num_of_obj * 2, sizeof(float) * 3); // Min, Max 값 저장
         objectIndexBuffer = new ComputeBuffer(num_of_obj, sizeof(int) * 2); // Min, Max 값 저장
-        objectIndexBuffer.SetData(indicies);
+        collisionBuffer = new ComputeBuffer(num_of_obj, sizeof(int));       // 충돌 여부 저장
 
-        computeShader.SetBuffer(updateAABBKernel, "Vertices", posBuffer);
-        computeShader.SetBuffer(updateAABBKernel, "IntermediateResults", intermediateResultsBuffer);
+        dispatchAABBGroupSize = Mathf.CeilToInt(num_of_obj / 1024f);
+        dispatchPositionGroupSize = Mathf.CeilToInt(vertexCount / 1024f);
+
+        print("dispatchAABBGroupSize:" + dispatchAABBGroupSize);
+        print("dispatchPositionGroupSize:" + dispatchPositionGroupSize);
+
+        posBuffer.SetData(positions);
+        objectIndexBuffer.SetData(indicies);
+        collisionBuffer.SetData(collisions);
+    }
+
+    void UpdateBuffers()
+    {
+        computeShader.SetInt("maxVertexCount", vertexCount);
+        computeShader.SetBuffer(updatePositionKernel, "Positions", posBuffer);
+        computeShader.SetBuffer(updatePositionKernel, "Velocities", velBuffer);
+
+        computeShader.SetBuffer(collisionFloorKernel, "Positions", posBuffer);
+        computeShader.SetBuffer(collisionFloorKernel, "Velocities", velBuffer);
+        computeShader.SetBuffer(collisionFloorKernel, "floorCollisionResult", collisionBuffer);
+        computeShader.SetBuffer(collisionFloorKernel, "ObjectIndex", objectIndexBuffer);
+
+        computeShader.SetBuffer(updateAABBKernel, "Positions", posBuffer);
+        computeShader.SetBuffer(updateAABBKernel, "AABB", aabbBuffer);
         computeShader.SetBuffer(updateAABBKernel, "ObjectIndex", objectIndexBuffer);
+        computeShader.SetBuffer(updateAABBKernel, "floorCollisionResult", collisionBuffer);
     }
 
     void DisPatchSolver()
     {
-        computeShader.Dispatch(updateAABBKernel, dispatchValue, 1, 1);
+        computeShader.Dispatch(updatePositionKernel, dispatchPositionGroupSize, 1, 1);
+        computeShader.Dispatch(updateAABBKernel, dispatchAABBGroupSize, 1, 1);
+        computeShader.Dispatch(collisionFloorKernel, dispatchAABBGroupSize, 1, 1);
     }
 
     void UpdatePosition()
     {
-        if (index++ % num_of_loop == 0)
+        posBuffer.GetData(positions);
+
+        for (int i = 0; i < num_of_obj; i++)
         {
-            index = 1;
-            for (int i = 0; i < num_of_obj; i++)
+            var src = indicies[i].x;
+            var dst = indicies[i].y;
+
+            var _vertices = mesh_list[i].vertices;
+            var worldToLocal = o[i].transform.worldToLocalMatrix;
+            Vector3[] new_verts = new Vector3[_vertices.Length];
+            for (int j = 0; j < (dst - src); j++)
             {
-                o[i].transform.position = new Vector3(Random.Range(-10.0f, 10.0f), Random.Range(0.0f, 10.0f), Random.Range(-10.0f, 10.0f));
+                new_verts[j] = worldToLocal.MultiplyPoint3x4(positions[j + src]);
             }
+            mesh_list[i].vertices = new_verts;
+            mesh_list[i].RecalculateNormals();
         }
     }
 
-    void Update()
-    {
-        UpdatePosition();
-        InitBuffers();
-        DisPatchSolver();
 
-        if (debugMode)
-        {
-            // 결과 읽기
-            Vector3[] results = new Vector3[num_of_obj * 2];
-            intermediateResultsBuffer.GetData(results);
-            for (int i = 0; i < num_of_obj; i++)
-            {
-                min[i] = results[i * 2];
-                max[i] = results[i * 2 + 1];
-            }
-        }
-    }
 
     private void OnDestroy()
     {
-        if (intermediateResultsBuffer != null) intermediateResultsBuffer.Release();
+        if (aabbBuffer != null) aabbBuffer.Release();
         if (posBuffer != null) posBuffer.Release();
         if (objectIndexBuffer != null) objectIndexBuffer.Release();
     }
