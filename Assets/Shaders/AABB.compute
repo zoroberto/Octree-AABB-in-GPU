@@ -13,38 +13,63 @@ RWStructuredBuffer<float3> IntermediateResults;
 #define GROUP_SIZE 1024
 #define FLT_MAX 2147483647
 
+// [numthreads(GROUP_SIZE, 1, 1)]
+// void UpdateAABBGroup(uint3 DTid : SV_DispatchThreadID) {
+//     uint index = DTid.x;
+//     uint groupIndex = 0;
+
+//     for(int i=0;i<ObjectIndex.Length;i++)
+//     {
+//         if (index >= ObjectIndex[i].x && index < ObjectIndex[i].y) {
+//             groupIndex = i;
+//             break;
+//         }
+//     }
+
+//     int src = ObjectIndex[groupIndex].x;
+//     int dst = ObjectIndex[groupIndex].y;
+
+//     // 이 스레드 그룹의 최초 스레드에서만 실행
+//     if (index == src) {
+//         float3 min_value = float3(FLT_MAX, FLT_MAX, FLT_MAX);
+//         float3 max_value = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+//         // 이 스레드 그룹의 모든 정점을 순회하면서 최소 및 최대 값을 찾음
+//         for(int i=index;i<dst;++i)
+//         {
+//             float3 vertex = Vertices[i];
+
+//             min_value = min(min_value, vertex); // 최소값 업데이트
+//             max_value = max(max_value, vertex); // 최대값 업데이트
+//         }
+
+//         // 중간 결과를 저장
+//         IntermediateResults[groupIndex * 2] = min_value;
+//         IntermediateResults[groupIndex * 2 + 1] = max_value;
+//     }
+// }
+
 [numthreads(GROUP_SIZE, 1, 1)]
 void UpdateAABBGroup(uint3 DTid : SV_DispatchThreadID) {
-    uint index = DTid.x;
-    uint groupIndex = 0;
+    uint index = DTid.x; // ObjectIndex        
 
-    for(int i=0;i<ObjectIndex.Length;i++)
-    {
-        if (index >= ObjectIndex[i].x && index < ObjectIndex[i].y) {
-            groupIndex = i;
-            break;
-        }
-    }
-
-    int src = ObjectIndex[groupIndex].x;
-    int dst = ObjectIndex[groupIndex].y;
+    int src = ObjectIndex[index].x;
+    int dst = ObjectIndex[index].y;
 
     // 이 스레드 그룹의 최초 스레드에서만 실행
-    if (index == src) {
-        float3 min_value = float3(FLT_MAX, FLT_MAX, FLT_MAX);
-        float3 max_value = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+    float3 min_value = float3(FLT_MAX, FLT_MAX, FLT_MAX);
+    float3 max_value = float3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
-        // 이 스레드 그룹의 모든 정점을 순회하면서 최소 및 최대 값을 찾음
-        for(int i=index;i<dst;++i)
-        {
-            float3 vertex = Vertices[i];
+    // 이 스레드 그룹의 모든 정점을 순회하면서 최소 및 최대 값을 찾음
+    for(int i=src;i<dst;++i)
+    {
+        float3 vertex = Vertices[i];
 
-            min_value = min(min_value, vertex); // 최소값 업데이트
-            max_value = max(max_value, vertex); // 최대값 업데이트
-        }
-
-        // 중간 결과를 저장
-        IntermediateResults[groupIndex * 2] = min_value;
-        IntermediateResults[groupIndex * 2 + 1] = max_value;
+        min_value = min(min_value, vertex); // 최소값 업데이트
+        max_value = max(max_value, vertex); // 최대값 업데이트
     }
+
+    // 중간 결과를 저장
+    IntermediateResults[index * 2] = min_value;
+    IntermediateResults[index * 2 + 1] = max_value;
 }

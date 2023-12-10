@@ -38,6 +38,7 @@ public class BBTest : MonoBehaviour
 
     int index = 0;
 
+    private int dispatchValue = 1;
     void Start()
     {
         o = new GameObject[num_of_obj];
@@ -83,6 +84,8 @@ public class BBTest : MonoBehaviour
         vertexCount = vertices.Count;
         positions = vertices.ToArray();
 
+        dispatchValue = Mathf.CeilToInt(num_of_obj / 1024f);
+
         // 버퍼 생성 및 설정
         if (intermediateResultsBuffer != null) intermediateResultsBuffer.Release();
         if (posBuffer != null) posBuffer.Release();
@@ -101,7 +104,7 @@ public class BBTest : MonoBehaviour
 
     void DisPatchSolver()
     {
-        computeShader.Dispatch(updateAABBKernel, Mathf.CeilToInt(vertexCount / 1024f), 1, 1);
+        computeShader.Dispatch(updateAABBKernel, dispatchValue, 1, 1);
     }
 
     void UpdatePosition()
