@@ -127,7 +127,7 @@ public class BBTest : MonoBehaviour
         objectIndexBuffer = new ComputeBuffer(num_of_obj, sizeof(int) * 2); // Min, Max 값 저장
         collisionBuffer = new ComputeBuffer(num_of_obj, sizeof(int));       // 충돌 여부 저장
 
-        dispatchAABBGroupSize = Mathf.CeilToInt(num_of_obj / 1024f);
+        dispatchAABBGroupSize = Mathf.CeilToInt(num_of_obj / 16f);
         dispatchPositionGroupSize = Mathf.CeilToInt(vertexCount / 1024f);
 
         print("dispatchAABBGroupSize:" + dispatchAABBGroupSize);

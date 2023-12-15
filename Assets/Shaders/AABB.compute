@@ -17,10 +17,11 @@ RWStructuredBuffer<int> floorCollisionResult;
 int maxVertexCount;
 
 // 스레드 그룹 크기
-#define GROUP_SIZE 1024
+#define GROUP_SIZE1 1024
+#define GROUP_SIZE2 16
 #define FLT_MAX 2147483647
 
-[numthreads(GROUP_SIZE,1,1)]
+[numthreads(GROUP_SIZE1,1,1)]
 void UpdatePosition(uint3 id : SV_DispatchThreadID)
 {
     int index = id.x;
@@ -39,7 +40,7 @@ void UpdatePosition(uint3 id : SV_DispatchThreadID)
     Velocities[index] = currVel;
 }
 
-[numthreads(GROUP_SIZE,1,1)]
+[numthreads(GROUP_SIZE2,1,1)]
 void CollisionWithFloor(uint3 id : SV_DispatchThreadID)
 {
     int index = id.x; // ObjectIndex        
@@ -64,7 +65,7 @@ void CollisionWithFloor(uint3 id : SV_DispatchThreadID)
     }
 }
 
-[numthreads(GROUP_SIZE, 1, 1)]
+[numthreads(GROUP_SIZE2, 1, 1)]
 void UpdateAABBGroup(uint3 id : SV_DispatchThreadID)
 {
     int index = id.x; // ObjectIndex        
